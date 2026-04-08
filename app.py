@@ -42,6 +42,10 @@ def _init_state() -> None:
         st.session_state.last_alert_step = -1
     if "prev_fires" not in st.session_state:
         st.session_state.prev_fires = set()
+    if "prev_floods" not in st.session_state:
+        st.session_state.prev_floods = set()
+    if "prev_landslides" not in st.session_state:
+        st.session_state.prev_landslides = set()
     if "prev_blocked_roads" not in st.session_state:
         st.session_state.prev_blocked_roads = set()
     if "prev_blocked_nodes" not in st.session_state:
@@ -72,6 +76,8 @@ def _record_history(stats: Dict[str, float]) -> None:
             "moving": int(stats["moving"]),
             "stuck": int(stats["stuck"]),
             "fire_nodes": int(stats["fire_nodes"]),
+            "flood_nodes": int(stats["flood_nodes"]),
+            "landslide_nodes": int(stats["landslide_nodes"]),
             "blocked_nodes": int(stats["blocked_nodes"]),
             "blocked_roads": int(stats["blocked_roads"]),
             "avg_congestion": float(stats["avg_congestion"]),
@@ -84,6 +90,8 @@ def _record_history(stats: Dict[str, float]) -> None:
 def _build_risk_index(stats: Dict[str, float]) -> float:
     raw = (
         float(stats["fire_nodes"]) * 4.0
+        + float(stats["flood_nodes"]) * 3.0
+        + float(stats["landslide_nodes"]) * 3.5
         + float(stats["blocked_nodes"]) * 2.0
         + float(stats["blocked_roads"]) * 1.5
         + float(stats["avg_congestion"]) * 8.0
@@ -165,6 +173,38 @@ def _generate_alerts(sim: DisasterSimulation, stats: Dict[str, float], history: 
             "title": "🔥 Fire Zone Detected",
             "message": f"Active fire in {stats['fire_nodes']} zone(s). Agents routing around fires.",
             "id": "fire_detected"
+        })
+
+    # === FLOOD-SPECIFIC ALERTS ===
+    if stats["flood_nodes"] > sim.env.rows * sim.env.cols * 0.20:
+        active_alerts.append({
+            "severity": "critical",
+            "title": "🌊 FLOODING ACROSS CITY",
+            "message": f"Flood has affected {stats['flood_nodes']} zones. Mobility corridors are shrinking rapidly.",
+            "id": "flood_critical"
+        })
+    elif stats["flood_nodes"] >= 4:
+        active_alerts.append({
+            "severity": "warning",
+            "title": "🌊 Flood Zones Expanding",
+            "message": f"{stats['flood_nodes']} flood zone(s) active. Agents are rerouting from waterlogged nodes.",
+            "id": "flood_warning"
+        })
+
+    # === LANDSLIDE-SPECIFIC ALERTS ===
+    if stats["landslide_nodes"] >= 3:
+        active_alerts.append({
+            "severity": "critical",
+            "title": "⛰️ MULTIPLE LANDSLIDES",
+            "message": f"{stats['landslide_nodes']} landslide nodes detected. Terrain instability blocking key paths.",
+            "id": "landslide_critical"
+        })
+    elif stats["landslide_nodes"] >= 1:
+        active_alerts.append({
+            "severity": "warning",
+            "title": "⛰️ Landslide Event",
+            "message": f"{stats['landslide_nodes']} landslide node(s) active. Route recalculation in progress.",
+            "id": "landslide_warning"
         })
 
     # === BLOCKAGE-SPECIFIC ALERTS ===
@@ -336,6 +376,8 @@ def _detect_state_changes(sim: DisasterSimulation, step: int) -> List[Dict[str, 
     event_alerts = []
     
     current_fires = set(sim.env.fire_nodes)
+    current_floods = set(sim.env.flood_nodes)
+    current_landslides = set(sim.env.landslide_nodes)
     current_blocked_roads = set(frozenset(e) for e in sim.env.blocked_edges)
     current_blocked_nodes = set(sim.env.blocked_nodes)
     
@@ -347,6 +389,26 @@ def _detect_state_changes(sim: DisasterSimulation, step: int) -> List[Dict[str, 
             "title": f"🔥 FIRE IGNITED AT {fire_node}",
             "message": f"New fire zone active at node {fire_node}. Agents must avoid this area immediately.",
             "id": f"fire_event_{step}_{fire_node}",
+        })
+
+    # New floods detected
+    new_floods = current_floods - st.session_state.prev_floods
+    for flood_node in sorted(new_floods):
+        event_alerts.append({
+            "severity": "critical",
+            "title": f"🌊 FLOOD AT {flood_node}",
+            "message": f"New flood zone active at node {flood_node}. Agents are avoiding submerged routes.",
+            "id": f"flood_event_{step}_{flood_node}",
+        })
+
+    # New landslides detected
+    new_landslides = current_landslides - st.session_state.prev_landslides
+    for landslide_node in sorted(new_landslides):
+        event_alerts.append({
+            "severity": "critical",
+            "title": f"⛰️ LANDSLIDE AT {landslide_node}",
+            "message": f"Landslide detected at node {landslide_node}. Nearby paths may be inaccessible.",
+            "id": f"landslide_event_{step}_{landslide_node}",
         })
     
     # New blocked roads detected
@@ -373,6 +435,8 @@ def _detect_state_changes(sim: DisasterSimulation, step: int) -> List[Dict[str, 
     
     # Update previous state
     st.session_state.prev_fires = current_fires
+    st.session_state.prev_floods = current_floods
+    st.session_state.prev_landslides = current_landslides
     st.session_state.prev_blocked_roads = current_blocked_roads
     st.session_state.prev_blocked_nodes = current_blocked_nodes
     
@@ -507,6 +571,8 @@ with st.sidebar:
         if sim.apply_scenario(scenario_choice):
             # Reset alert state tracking to detect scenario fires/blockages
             st.session_state.prev_fires = set()
+            st.session_state.prev_floods = set()
+            st.session_state.prev_landslides = set()
             st.session_state.prev_blocked_roads = set()
             st.session_state.prev_blocked_nodes = set()
             if auto_start_after_preset:
@@ -519,6 +585,8 @@ with st.sidebar:
     st.markdown("---")
     st.subheader("Disaster Probabilities")
     sim.p_fire_spread = st.slider("Fire Spread Probability", 0.0, 1.0, float(sim.p_fire_spread), 0.01)
+    sim.p_flood_spread = st.slider("Flood Spread Probability", 0.0, 1.0, float(sim.p_flood_spread), 0.01)
+    sim.p_new_landslide = st.slider("New Landslide Probability", 0.0, 1.0, float(sim.p_new_landslide), 0.01)
     sim.p_new_block_node = st.slider("New Blocked Node Probability", 0.0, 1.0, float(sim.p_new_block_node), 0.01)
     sim.p_new_block_edge = st.slider("New Blocked Road Probability", 0.0, 1.0, float(sim.p_new_block_edge), 0.01)
     sim.congestion_threshold = st.slider("Congestion Threshold", min_value=2, max_value=10, value=int(sim.congestion_threshold))
@@ -544,6 +612,8 @@ with st.sidebar:
         st.session_state.running = False
         # Reset alert state tracking
         st.session_state.prev_fires = set()
+        st.session_state.prev_floods = set()
+        st.session_state.prev_landslides = set()
         st.session_state.prev_blocked_roads = set()
         st.session_state.prev_blocked_nodes = set()
         st.session_state.dismissed_alerts = set()
@@ -570,6 +640,18 @@ with st.sidebar:
         if not sim.add_fire_location(fire_node):
             st.warning("Cannot place fire on this node (likely an exit).")
 
+    flood_node: Node = st.selectbox("Add Flood Location", options=node_options, format_func=lambda n: f"Node {n}")
+    if st.button("Add Flood", use_container_width=True):
+        if not sim.add_flood_location(flood_node):
+            st.warning("Cannot place flood on this node (likely an exit).")
+
+    landslide_node: Node = st.selectbox(
+        "Add Landslide Location", options=node_options, format_func=lambda n: f"Node {n}"
+    )
+    if st.button("Add Landslide", use_container_width=True):
+        if not sim.add_landslide_location(landslide_node):
+            st.warning("Cannot place landslide on this node (likely an exit).")
+
     edge_options = list(sim.env.graph.edges)
     blocked_edge = st.selectbox(
         "Add Blocked Road",
@@ -593,6 +675,8 @@ timeline_steps = _timeline(history, "step")
 timeline_evac = _timeline(history, "evacuated")
 timeline_stuck = _timeline(history, "stuck")
 timeline_fire = _timeline(history, "fire_nodes")
+timeline_flood = _timeline(history, "flood_nodes")
+timeline_landslide = _timeline(history, "landslide_nodes")
 timeline_congestion = _timeline(history, "avg_congestion")
 
 # Generate and display active alerts
@@ -619,11 +703,13 @@ with overview_tab:
     c4.metric("Stuck", stats["stuck"])
     c5.metric("Evacuation Rate", f"{evac_rate:.1f}%")
 
-    c6, c7, c8, c9 = st.columns(4)
+    c6, c7, c8, c9, c10, c11 = st.columns(6)
     c6.metric("Fire Zones", stats["fire_nodes"])
-    c7.metric("Blocked Nodes", stats["blocked_nodes"])
-    c8.metric("Blocked Roads", stats["blocked_roads"])
-    c9.metric("Risk Index", f"{risk_index:.1f}/100")
+    c7.metric("Flood Zones", stats["flood_nodes"])
+    c8.metric("Landslides", stats["landslide_nodes"])
+    c9.metric("Blocked Nodes", stats["blocked_nodes"])
+    c10.metric("Blocked Roads", stats["blocked_roads"])
+    c11.metric("Risk Index", f"{risk_index:.1f}/100")
 
     # Alert summary
     critical_count = sum(1 for a in active_alerts if a.get("severity") == "critical")
@@ -668,6 +754,8 @@ with analytics_tab:
             {
                 "step": timeline_steps,
                 "fire_nodes": timeline_fire,
+                "flood_nodes": timeline_flood,
+                "landslide_nodes": timeline_landslide,
                 "blocked_nodes": _timeline(history, "blocked_nodes"),
                 "blocked_roads": _timeline(history, "blocked_roads"),
             },
@@ -716,6 +804,8 @@ with ops_tab:
             [
                 {
                     "known_fire_nodes": len(selected_agent.known_fire_nodes),
+                    "known_flood_nodes": len(selected_agent.known_flood_nodes),
+                    "known_landslide_nodes": len(selected_agent.known_landslide_nodes),
                     "known_blocked_nodes": len(selected_agent.known_blocked_nodes),
                     "known_blocked_roads": len(selected_agent.known_blocked_edges),
                 }
@@ -748,22 +838,6 @@ with ops_tab:
         mime="application/json",
         use_container_width=True,
     )
-
-with st.expander("How to explain this map to judges", expanded=False):
-        st.markdown(
-                """
-                - **Gray lines** are normal roads; **black lines** are blocked roads.
-                - **Green markers** are safe exits where agents must evacuate.
-                - **Red circles** are active fire zones; these spread over time.
-                - **Bike markers (🚴)** are civilians (agents):
-                    - **Blue** = moving
-                    - **Orange** = stuck
-                    - **Green** = evacuated
-                - **Orange glow circles** represent congestion hotspots.
-                - At each step, agents perceive hazards, share hazard info, and replan routes using `A*` (or BFS/DFS if selected).
-                - The top metrics and logs quantify evacuation efficiency: how many evacuated, how many stuck, and how hazards evolved.
-                """
-        )
 
 if st.session_state.running:
     if sim.is_finished():

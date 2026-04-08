@@ -23,7 +23,7 @@ A full Python + Streamlit application that simulates multi-agent disaster evacua
   - Pause simulation
   - Run one step
   - Reset simulation
-  - Apply scenario presets (Urban Fire, Road Collapse, Congestion Surge)
+  - Apply scenario presets (including Fire Prone India, Flood Prone India)
   - Auto-start after applying preset
   - Add fire location
   - Add blocked road
@@ -74,6 +74,51 @@ streamlit run app.py
 ```
 
 Then open the local URL shown in the terminal (usually `http://localhost:8501`).
+
+## Visualization Preview
+
+Add screenshots to an `assets/` folder and they will render automatically in this README.
+
+![Dashboard Overview](assets/dashboard-overview.svg)
+![Map View](assets/map-view.svg)
+
+### Map Legend
+
+| Visual Element | Meaning |
+| --- | --- |
+| Gray road lines | Traversable roads |
+| Black road lines | Blocked roads |
+| Green markers | Safe exits |
+| Red circles | Fire zones |
+| Blue circles | Flood zones |
+| Brown markers | Landslide zones |
+| Bike markers | Civilian agents (moving/stuck/evacuated by color) |
+| Orange glow circles | Congestion hotspots |
+
+### System Flow (High Level)
+
+```mermaid
+flowchart LR
+  A[Disaster Environment\nGrid Graph] --> B[Hazard Updates\nFire, Flood, Landslide, Blockages]
+  B --> C[Agent Perception\nLocal Sensing + Shared Knowledge]
+  C --> D[Path Planning\nA*, BFS, DFS]
+  D --> E[Agent Movement\nStep-wise Evacuation]
+  E --> F[Live Map + Dashboard\nLeaflet in Streamlit]
+  F --> B
+```
+
+### Module Architecture
+
+```mermaid
+graph TD
+  M[main.py] --> APP[app.py]
+  APP --> SIM[simulation.py]
+  SIM --> ENV[environment.py]
+  SIM --> AG[agent.py]
+  AG --> PF[pathfinding.py]
+  APP --> VIZ[visualization.py]
+  VIZ --> ENV
+```
 
 ## How it Works
 

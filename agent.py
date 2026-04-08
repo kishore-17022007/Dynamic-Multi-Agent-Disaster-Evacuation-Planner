@@ -17,6 +17,8 @@ class EvacuationAgent:
     planned_path: List[Node] = field(default_factory=list)
     status: str = "moving"
     known_fire_nodes: Set[Node] = field(default_factory=set)
+    known_flood_nodes: Set[Node] = field(default_factory=set)
+    known_landslide_nodes: Set[Node] = field(default_factory=set)
     known_blocked_nodes: Set[Node] = field(default_factory=set)
     known_blocked_edges: Set[Edge] = field(default_factory=set)
 
@@ -25,6 +27,10 @@ class EvacuationAgent:
             if abs(node[0] - self.current_node[0]) + abs(node[1] - self.current_node[1]) <= radius:
                 if node in environment.fire_nodes:
                     self.known_fire_nodes.add(node)
+                if node in environment.flood_nodes:
+                    self.known_flood_nodes.add(node)
+                if node in environment.landslide_nodes:
+                    self.known_landslide_nodes.add(node)
                 if node in environment.blocked_nodes:
                     self.known_blocked_nodes.add(node)
 
@@ -42,6 +48,8 @@ class EvacuationAgent:
             if other.agent_id == self.agent_id:
                 continue
             self.known_fire_nodes |= other.known_fire_nodes
+            self.known_flood_nodes |= other.known_flood_nodes
+            self.known_landslide_nodes |= other.known_landslide_nodes
             self.known_blocked_nodes |= other.known_blocked_nodes
             self.known_blocked_edges |= other.known_blocked_edges
 
@@ -54,8 +62,19 @@ class EvacuationAgent:
 
     def plan_route(self, environment, algorithm: str = "astar", avoid_nodes: Optional[Set[Node]] = None) -> None:
         avoid_nodes = avoid_nodes or set()
-        blocked_nodes = set(environment.fire_nodes) | set(environment.blocked_nodes)
-        blocked_nodes |= self.known_fire_nodes | self.known_blocked_nodes | avoid_nodes
+        blocked_nodes = (
+            set(environment.fire_nodes)
+            | set(environment.flood_nodes)
+            | set(environment.landslide_nodes)
+            | set(environment.blocked_nodes)
+        )
+        blocked_nodes |= (
+            self.known_fire_nodes
+            | self.known_flood_nodes
+            | self.known_landslide_nodes
+            | self.known_blocked_nodes
+            | avoid_nodes
+        )
         blocked_nodes -= set(environment.exits)
         blocked_nodes.discard(self.current_node)
 

@@ -40,6 +40,12 @@ def _hotspot_center(environment) -> Tuple[float, float]:
     for node in environment.fire_nodes:
         node_score[node] += 5
 
+    for node in environment.flood_nodes:
+        node_score[node] += 4
+
+    for node in environment.landslide_nodes:
+        node_score[node] += 4
+
     for node in environment.blocked_nodes:
         node_score[node] += 3
 
@@ -83,6 +89,28 @@ def render_leaflet_map(environment, agents: List, show_heatmap: bool = True) -> 
             fill=True,
             fill_opacity=0.35,
             popup=f"Fire: {fire}",
+        ).add_to(fmap)
+
+    for flood in environment.flood_nodes:
+        folium.Circle(
+            location=environment.node_to_latlon(flood),
+            radius=110,
+            color="#1f77b4",
+            fill=True,
+            fill_color="#1f77b4",
+            fill_opacity=0.28,
+            popup=f"Flood: {flood}",
+        ).add_to(fmap)
+
+    for landslide in environment.landslide_nodes:
+        folium.CircleMarker(
+            location=environment.node_to_latlon(landslide),
+            radius=7,
+            color="#8b4513",
+            fill=True,
+            fill_color="#8b4513",
+            fill_opacity=0.9,
+            popup=f"Landslide: {landslide}",
         ).add_to(fmap)
 
     for blocked_node in environment.blocked_nodes:

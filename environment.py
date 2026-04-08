@@ -15,7 +15,7 @@ class DisasterEnvironment:
         self,
         rows: int = 12,
         cols: int = 12,
-        origin_latlon: Tuple[float, float] = (37.7749, -122.4194),
+        origin_latlon: Tuple[float, float] = (28.6139, 77.2090),
         cell_step: float = 0.002,
         seed: Optional[int] = None,
     ) -> None:
@@ -26,9 +26,7 @@ class DisasterEnvironment:
         self.random = random.Random(seed)
 
         self.graph: nx.Graph = nx.grid_2d_graph(rows, cols)
-        for node in self.graph.nodes:
-            self.graph.nodes[node]["pos"] = node
-            self.graph.nodes[node]["latlon"] = self.node_to_latlon(node)
+        self._refresh_node_latlons()
 
         self.exits: List[Node] = [
             (0, 0),
@@ -38,6 +36,8 @@ class DisasterEnvironment:
         ]
 
         self.fire_nodes: Set[Node] = set()
+        self.flood_nodes: Set[Node] = set()
+        self.landslide_nodes: Set[Node] = set()
         self.blocked_nodes: Set[Node] = set()
         self.blocked_edges: Set[Edge] = set()
         self.congestion: Dict[Node, int] = defaultdict(int)
@@ -48,6 +48,15 @@ class DisasterEnvironment:
         lon = self.origin_latlon[1] + c * self.cell_step
         return lat, lon
 
+    def _refresh_node_latlons(self) -> None:
+        for node in self.graph.nodes:
+            self.graph.nodes[node]["pos"] = node
+            self.graph.nodes[node]["latlon"] = self.node_to_latlon(node)
+
+    def set_origin_latlon(self, origin_latlon: Tuple[float, float]) -> None:
+        self.origin_latlon = origin_latlon
+        self._refresh_node_latlons()
+
     def distance(self, a: Node, b: Node) -> float:
         return ((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2) ** 0.5
 
@@ -55,6 +64,8 @@ class DisasterEnvironment:
         return (
             node in self.graph
             and node not in self.fire_nodes
+            and node not in self.flood_nodes
+            and node not in self.landslide_nodes
             and node not in self.blocked_nodes
         )
 
@@ -64,6 +75,20 @@ class DisasterEnvironment:
     def add_fire(self, node: Node) -> bool:
         if node in self.graph and node not in self.exits:
             self.fire_nodes.add(node)
+            self.blocked_nodes.discard(node)
+            return True
+        return False
+
+    def add_flood(self, node: Node) -> bool:
+        if node in self.graph and node not in self.exits:
+            self.flood_nodes.add(node)
+            self.blocked_nodes.discard(node)
+            return True
+        return False
+
+    def add_landslide(self, node: Node) -> bool:
+        if node in self.graph and node not in self.exits:
+            self.landslide_nodes.add(node)
             self.blocked_nodes.discard(node)
             return True
         return False
@@ -107,10 +132,18 @@ class DisasterEnvironment:
     def probability_update(
         self,
         p_fire_spread: float = 0.15,
+        p_flood_spread: float = 0.10,
+        p_new_landslide: float = 0.05,
         p_new_block_node: float = 0.06,
         p_new_block_edge: float = 0.08,
     ) -> Dict[str, List[Node]]:
-        updates = {"new_fire": [], "new_blocked_nodes": [], "new_blocked_roads": []}
+        updates = {
+            "new_fire": [],
+            "new_flood": [],
+            "new_landslide": [],
+            "new_blocked_nodes": [],
+            "new_blocked_roads": [],
+        }
 
         new_fire: Set[Node] = set()
         for fire_node in list(self.fire_nodes):
@@ -128,6 +161,31 @@ class DisasterEnvironment:
             self.fire_nodes.add(node)
             self.blocked_nodes.discard(node)
             updates["new_fire"].append(node)
+
+        new_flood: Set[Node] = set()
+        for flood_node in list(self.flood_nodes):
+            for nbr in self.graph.neighbors(flood_node):
+                if (
+                    nbr in self.exits
+                    or nbr in self.flood_nodes
+                    or nbr in self.fire_nodes
+                    or nbr in self.landslide_nodes
+                    or nbr in self.blocked_nodes
+                ):
+                    continue
+                if self.random.random() < p_flood_spread:
+                    new_flood.add(nbr)
+
+        for node in new_flood:
+            self.flood_nodes.add(node)
+            self.blocked_nodes.discard(node)
+            updates["new_flood"].append(node)
+
+        if self.random.random() < p_new_landslide:
+            candidate = self.random_safe_node()
+            if candidate is not None:
+                self.landslide_nodes.add(candidate)
+                updates["new_landslide"].append(candidate)
 
         if self.random.random() < p_new_block_node:
             candidate = self.random_safe_node()
@@ -152,6 +210,8 @@ class DisasterEnvironment:
 
     def reset_disaster(self) -> None:
         self.fire_nodes.clear()
+        self.flood_nodes.clear()
+        self.landslide_nodes.clear()
         self.blocked_nodes.clear()
         self.blocked_edges.clear()
         self.congestion.clear()
